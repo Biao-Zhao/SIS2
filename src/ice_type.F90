@@ -49,6 +49,7 @@ type ice_data_type !  ice_public_type
   logical  :: fast_ice_pe = .false. !< If true, this is a fast ice PE
   logical  :: shared_slow_fast_PEs = .true. !< If true, the fast and slow ice use the same processors
                                     !! and domain decomposition
+  logical  :: use_waves = .false.   !< A switch control whether use frictin velocity and charnoc parameter from WW3, added by Biao
   integer  :: xtype          !< An integer specifying the type for the exchange
   integer, pointer, dimension(:)   :: slow_pelist =>NULL() !< Used for flux-exchange with slow processes.
   integer, pointer, dimension(:)   :: fast_pelist =>NULL() !< Used for flux-exchange with fast processes.
@@ -81,10 +82,11 @@ type ice_data_type !  ice_public_type
     t_surf      => NULL(), &  !< The surface temperature for the ocean or for
                               !! each ice-thickness category [Kelvin].
     u_surf      => NULL(), &  !< The eastward surface velocities of the ocean (:,:,1) or sea-ice [m s-1].
-    v_surf      => NULL()     !< The northward surface velocities of the ocean (:,:,1) or sea-ice [m s-1].
+    v_surf      => NULL(), &  !< The northward surface velocities of the ocean (:,:,1) or sea-ice [m s-1].
+    ust_wav     =>NULL(), &   !< The friction velocity from ocean surface wave model [m/s], added by Biao
+    charn_wav   =>NULL()      !< The Charnock parameter from ocean surface wave model [dimensionless], added by Biao
   real, pointer, dimension(:,:)   :: &
     s_surf         =>NULL()   !< The ocean's surface salinity [gSalt kg-1].
-
   ! These arrays will be used to set the forcing for the ocean.
   real, pointer, dimension(:,:) :: &
     SST_C => NULL(), &    !< The ocean surface temperature [degC].
@@ -289,6 +291,8 @@ subroutine ice_type_fast_reg_restarts(domain, CatIce, param_file, Ice, &
   call safe_alloc_ptr(Ice%rough_mom, isc, iec, jsc, jec, km)
   call safe_alloc_ptr(Ice%rough_heat, isc, iec, jsc, jec, km)
   call safe_alloc_ptr(Ice%rough_moist, isc, iec, jsc, jec, km)
+  call safe_alloc_ptr(Ice%ust_wav, isc, iec, jsc, jec, 1)
+  call safe_alloc_ptr(Ice%charn_wav, isc, iec, jsc, jec, 1)
 
   call safe_alloc_ptr(Ice%albedo, isc, iec, jsc, jec, km)  ! Derived?
   call safe_alloc_ptr(Ice%albedo_vis_dir, isc, iec, jsc, jec, km)
@@ -324,6 +328,8 @@ subroutine dealloc_Ice_arrays(Ice)
   if (associated(Ice%rough_mom)) deallocate(Ice%rough_mom)
   if (associated(Ice%rough_heat)) deallocate(Ice%rough_heat)
   if (associated(Ice%rough_moist)) deallocate(Ice%rough_moist)
+  if (associated(Ice%ust_wav)) deallocate(Ice%ust_wav)
+  if (associated(Ice%charn_wav)) deallocate(Ice%charn_wav)
   if (associated(Ice%albedo)) deallocate(Ice%albedo)
   if (associated(Ice%albedo_vis_dir)) deallocate(Ice%albedo_vis_dir)
   if (associated(Ice%albedo_nir_dir)) deallocate(Ice%albedo_nir_dir)
@@ -403,6 +409,8 @@ subroutine Ice_public_type_chksum(mesg, Ice, check_fast, check_slow, check_rough
     call chksum(Ice%rough_mom, trim(mesg)//" Ice%rough_mom")
     call chksum(Ice%rough_heat, trim(mesg)//" Ice%rough_heat")
     call chksum(Ice%rough_moist, trim(mesg)//" Ice%rough_moist")
+    call chksum(Ice%ust_wav, trim(mesg)//" Ice%ust_wav")
+    call chksum(Ice%charn_wav, trim(mesg)//" Ice%charn_wav")
   endif
 
   if (slow_fields) then ! This is a slow-ice PE.
@@ -657,7 +665,8 @@ subroutine ice_data_type_chksum(mesg, timestep, Ice, init_call)
     chks = SIS_chksum(Ice%rough_mom   ) ; if (root) write(outunit,100)   'ice_data_type%rough_mom  ', chks
     chks = SIS_chksum(Ice%rough_heat  ) ; if (root) write(outunit,100)   'ice_data_type%rough_heat ', chks
     chks = SIS_chksum(Ice%rough_moist ) ; if (root) write(outunit,100)   'ice_data_type%rough_moist', chks
-
+    chks = SIS_chksum(Ice%ust_wav     ) ; if (root) write(outunit,100)   'ice_data_type%ust_wav    ', chks
+    chks = SIS_chksum(Ice%charn_wav   ) ; if (root) write(outunit,100)   'ice_data_type%charn_wav  ', chks
     if (.not.init) then
       chks = SIS_chksum(Ice%u_surf) ; if (root) write(outunit,100) 'ice_data_type%u_surf ', chks
       chks = SIS_chksum(Ice%v_surf) ; if (root) write(outunit,100) 'ice_data_type%v_surf ', chks

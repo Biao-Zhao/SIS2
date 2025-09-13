@@ -21,7 +21,6 @@ module ice_model_mod
 ! contributions from many people at NOAA/GFDL, including Alistair Adcroft and  !
 ! Niki Zadeh.                                                                  !
 !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~!
-
 use MOM_cpu_clock,     only : cpu_clock_id, cpu_clock_begin, cpu_clock_end
 use MOM_cpu_clock,     only : CLOCK_COMPONENT, CLOCK_SUBCOMPONENT
 use MOM_domains,       only : MOM_domain_type
@@ -1295,10 +1294,13 @@ subroutine set_fast_ocean_sfc_properties( Atmos_boundary, Ice, IST, Rad, FIA, &
   jo_A = LBOUND(Atmos_boundary%t_flux,2) - G%jsc
   io_I = LBOUND(Ice%t_surf,1) - G%isc
   jo_I = LBOUND(Ice%t_surf,2) - G%jsc
-
-  call compute_ocean_roughness (Ice%ocean_pt, Atmos_boundary%u_star(:,:,1), Ice%rough_mom(:,:,1), &
+  if (.not. Ice%use_waves) then
+     call compute_ocean_roughness (Ice%ocean_pt, Atmos_boundary%u_star(:,:,1), Ice%rough_mom(:,:,1), &
                                 Ice%rough_heat(:,:,1), Ice%rough_moist(:,:,1)  )
-
+  else
+     call compute_ocean_roughness (Ice%ocean_pt, Ice%ust_wav(:,:,1), Ice%rough_mom(:,:,1), &
+                                Ice%rough_heat(:,:,1), Ice%rough_moist(:,:,1), Ice%charn_wav(:,:,1) )
+  endif
   ! Update publicly visible ice_data_type variables..
   coszen_changed = .false.
   !$OMP parallel do default(shared) private(i3,j3)
@@ -1627,7 +1629,7 @@ end subroutine add_diurnal_sw
 !> ice_model_init - initializes ice model data, parameters and diagnostics. It
 !! might operate on the fast ice processors, the slow ice processors or both.
 subroutine ice_model_init(Ice, Time_Init, Time, Time_step_fast, Time_step_slow, &
-                          Verona_coupler, Concurrent_ice, gas_fluxes, gas_fields_ocn )
+                         Verona_coupler, Concurrent_ice, gas_fluxes, gas_fields_ocn, do_waves)
 
   type(ice_data_type), intent(inout) :: Ice            !< The ice data type that is being initialized.
   type(time_type)    , intent(in)    :: Time_Init      !< The starting time of the model integration
@@ -1653,7 +1655,9 @@ subroutine ice_model_init(Ice, Time_Init, Time, Time_step_fast, Time_step_slow, 
                                               !! in the calculation of additional gas or other
                                               !! tracer fluxes, and can be used to spawn related
                                               !! internal variables in the ice model.
-
+  logical,   optional, intent(in)     :: do_waves    !<if present, the friction velocity and charnock 
+                                              !! parameter from WW3 will be used to calculate 
+                                              !! rough_mom over ocean surface
   ! This include declares and sets the variable "version".
 # include "version_variable.h"
   real :: enth_spec_snow, enth_spec_ice
@@ -1795,7 +1799,9 @@ subroutine ice_model_init(Ice, Time_Init, Time, Time_step_fast, Time_step_slow, 
   fast_ice_PE = Ice%fast_ice_pe ; slow_ice_PE = Ice%slow_ice_pe
   split_fast_slow_flag = .false. ;
   if (present(Concurrent_ice)) split_fast_slow_flag = Concurrent_ice
-
+  if (present(do_waves)) then
+    if (do_waves) Ice%use_waves = .true.
+  endif
   ! Open the parameter file.
   if (slow_ice_PE) then
     call Get_SIS_Input(param_file, dirs, check_params=.true., component='SIS')
